@@ -42,14 +42,13 @@ declare_id!("Fg6PaFpoGXkYsidMpWTK6W2BeZ7FEfcYkg476zPFsLnS");
 #[program]
 pub mod nft_sell {
     use super::*;
-    const VAULT_AUTHORITY_SEED: &[u8] = b"vault-authority";
-    const VAULT_ACCOUNT_SEED: &[u8] = b"vault-account";
+    
 
     pub fn initialize(
         ctx: Context<Initialize>,
-        global_bump: u8,
         vault_account_bump: u8
     ) -> ProgramResult {
+        ctx.accounts.pool.load_init()?;
 
         let (vault_authority, _vault_authority_bump) = 
             Pubkey::find_program_address(&[VAULT_AUTHORITY_SEED], ctx.program_id);
@@ -76,7 +75,7 @@ pub mod nft_sell {
             buy_type: buy_type,
             price: price
         };
-        let pool = &mut ctx.accounts.pool;
+        let mut pool =  ctx.accounts.pool.load_mut()?;
         pool.add_nft(nft);
         if ( buy_type == 0 ){
             sol_transfer_with_signer(
@@ -88,55 +87,102 @@ pub mod nft_sell {
             )?;
         }
         else {
-
+            let cpi_accounts = Transfer {
+                from: ctx.accounts.admin_token_account.to_account_info().clone(),
+                to: ctx.accounts.vault_account.to_account_info().clone(),
+                authority: ctx.accounts.admin.to_account_info().clone()
+            };
+            token::transfer(
+                CpiContext::new(ctx.accounts.token_program.to_account_info().clone(), cpi_accounts),
+                price
+            )?;
         }
         Ok(())
     }
-    pub fn removeNFT(ctx: Context<RemoveNFT>) -> ProgramResult {
-        let pool = &mut ctx.accounts.pool;
-        pool.remove_nft(ctx.accounts.token_mint.key());
-        if ( ctx.accounts.buy_type == 0){
+    pub fn removeNFT(
+        ctx: Context<RemoveNFT>,
+    ) -> ProgramResult {
+        let mut pool =  ctx.accounts.pool.load_mut()?;
+        let item: NFTInfo = pool.remove_nft(ctx.accounts.token_mint.key());
+
+        let (_vault_authority, vault_authority_bump) = 
+            Pubkey::find_program_address(&[VAULT_AUTHORITY_SEED], ctx.program_id);
+
+        if ( item.buy_type == 0){
             sol_transfer_with_signer(
                 ctx.accounts.vault_account.to_account_info(),
                 ctx.accounts.admin.to_account_info(),
                 ctx.accounts.system_program.to_account_info(),
-                &[&[VAULT_ACCOUNT_SEED.as_ref(), &[vault_account_bump]]],
-                ctx.account.price
+                &[&[VAULT_AUTHORITY_SEED.as_ref(), &[vault_authority_bump]]],
+                item.price
+            )?;
+        }
+        else {
+            let cpi_accounts = Transfer {
+                from: ctx.accounts.vault_account.to_account_info().clone(),
+                to: ctx.accounts.admin_token_account.to_account_info().clone(),
+                authority: ctx.accounts.vault_authority.to_account_info().clone()
+            };
+            token::transfer(
+                CpiContext::new(ctx.accounts.token_program.to_account_info().clone(), cpi_accounts),
+                item.price
             )?;
         }
         Ok(())
     }
     pub fn sellNFT(ctx: Context<SellNFT>) -> ProgramResult {
-        let pool = &mut ctx.accounts.pool;
-        if pool.contain_nft(ctx.accounts.token_mint.key()) {
-            let cpi_accounts = Transfer {
-                from: ctx.accounts.user_token_account.to_account_info(),
-                to: ctx.accounts.owner.to_account_info(),
-                authority: ctx.accounts.owner.to_account_info()
-            };
-            let token_program = ctx.accounts.token_program.to_account_info();
-            let transfer_ctx = CpiContext::new(token_program, cpi_accounts);
-            token::transfer(
-                transfer_ctx,
-                1
-            )?;
-            pool.remove_nft(ctx.accounts.token_mint.key())
-            
-        }
-        else {
+        let (_vault_authority, vault_authority_bump) = 
+            Pubkey::find_program_address(&[VAULT_AUTHORITY_SEED], ctx.program_id);
 
+
+        let mut pool =  ctx.accounts.pool.load_mut()?;
+        let item: NFTInfo = pool.remove_nft(ctx.accounts.token_mint.key());
+
+
+        if item.price != 0 {
+            if  item.buy_type == 0{
+                sol_transfer_with_signer(
+                    ctx.accounts.vault_account.to_account_info(),
+                    ctx.accounts.owner.to_account_info(),
+                    ctx.accounts.system_program.to_account_info(),
+                    &[&[VAULT_AUTHORITY_SEED.as_ref(), &[vault_authority_bump]]],
+                    item.price
+                )?;
+            }
+            else{
+                let cpi_accounts = Transfer {
+                    from: ctx.accounts.vault_account.to_account_info().clone(),
+                    to: ctx.accounts.user_token_account.to_account_info().clone(),
+                    authority: ctx.accounts.vault_authority.to_account_info().clone()
+                };
+                token::transfer(
+                    CpiContext::new(ctx.accounts.token_program.to_account_info().clone(), cpi_accounts),
+                    item.price
+                )?;
+            }
         }
+        let cpi_accounts = Transfer {
+            from: ctx.accounts.user_token_account.to_account_info(),
+            to: ctx.accounts.ata_nft.to_account_info(),
+            authority: ctx.accounts.owner.to_account_info()
+        };
+        let token_program = ctx.accounts.token_program.to_account_info();
+        let transfer_ctx = CpiContext::new(token_program, cpi_accounts);
+        token::transfer(
+            transfer_ctx,
+            1
+        )?;
         Ok(())
     }
 }
 
 #[derive(Accounts)]
-#[instruction(pool_bump: u8, vault_account_bump: u8)]
+#[instruction( vault_account_bump: u8)]
 pub struct Initialize<'info> {
     #[account(mut)]
     pub admin: Signer<'info>,
     #[account(zero)]
-    pub pool: Account<'info, GlobalPool>,
+    pub pool: AccountLoader<'info, GlobalPool>,
     #[account (
         init,
         seeds= [b"vault-account".as_ref()],
@@ -156,12 +202,12 @@ pub struct Initialize<'info> {
 pub struct AddNFT<'info> {
     #[account(mut)]
     pub admin: Signer<'info>,
+    pub admin_token_account: AccountInfo<'info>,
     #[account(mut)]
-    pub pool: Account<'info, GlobalPool>,
+    pub pool: AccountLoader<'info, GlobalPool>,
     #[account(mut)]
     pub user_nft_token_account: Account<'info, TokenAccount>,
     pub token_mint: AccountInfo<'info>,
-
     pub vault_authority: AccountInfo<'info >,
     #[account(mut)]
     pub vault_account: Account<'info, TokenAccount>,
@@ -175,8 +221,12 @@ pub struct AddNFT<'info> {
 pub struct RemoveNFT<'info> {
     #[account(mut)]
     pub admin: Signer<'info>,
+    pub admin_token_account: Account<'info,TokenAccount>,
     #[account(mut)]
-    pub pool: Account<'info, GlobalPool>,
+    pub pool: AccountLoader<'info, GlobalPool>,
+    #[account(mut)]
+    pub vault_account: Account<'info, TokenAccount>,
+    pub vault_authority: AccountInfo<'info>,
     #[account(mut)]
     pub user_nft_token_account: Account<'info, TokenAccount>,
     pub token_mint: AccountInfo<'info>,
@@ -188,12 +238,24 @@ pub struct RemoveNFT<'info> {
 pub struct SellNFT<'info> {
     #[account(mut)]
     pub owner: Signer<'info>,
+    pub admin: AccountInfo<'info>,    
+    pub vault_authority: AccountInfo<'info>,
+    pub vault_account: Account<'info,TokenAccount>,
     #[account(mut)]
-    pub pool: Account<'info, GlobalPool>,
+    pub pool: AccountLoader<'info, GlobalPool>,
     #[account(mut)]
     pub user_token_account: Account<'info, TokenAccount>,
     pub token_mint: AccountInfo<'info>,
     pub token_program: Program<'info, Token>,
     pub system_program: Program<'info, System>,
+
+    #[account(
+        init,
+        associated_token::mint = token_mint,
+        associated_token::authority = admin,
+        payer = owner
+    )]
+    pub ata_nft: Account<'info, TokenAccount>
+
 }
 

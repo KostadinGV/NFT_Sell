@@ -36,15 +36,22 @@ impl GlobalPool {
     nfts[self.nft_count] = item; 
     self.nft_count += 1;
   }
-  pub fn remove_nft(&mut self, mint_key: Pubkey) {
-    for x in &mut self.nfts {
-      if ( x.nft_mint.equ== mint_key ){
-        x = self.nfts[self.nft_count-1];
-        let cnt = &mut self.nft_count;
-        cnt = cnt - 1;
-        break;
+  pub fn remove_nft(&mut self, mint_key: Pubkey) -> NFTInfo{
+    let mut removed: u8 = 0;
+    let mut item: NFTInfo ;
+    for i in 0..self.nft_count {
+      if self.nfts[i].nft_mint.eq(&mint_key)  {
+        if i != self.nft_count - 1 {
+          item = self.nfts[i];
+          self.nfts[i] = self.nfts[self.nft_count - 1];
+          self.nft_count -= 1;
+          removed = 1;
+          break;
+        }
       }
     }
+    //require!(removed == 1,&b"remove item not found");
+    return item;
   }
   pub fn contain_nft(&mut self, mint_key: Pubkey) -> bool {
     for x in &self.nfts {
