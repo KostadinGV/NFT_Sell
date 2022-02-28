@@ -1,9 +1,18 @@
 use anchor_lang::prelude::*;
 use solana_program::{
-  program::{invoke_signed}
+  program::{invoke_signed, invoke}
 };
 
 // transfer sol
+pub fn sol_transfer<'a>(
+  source: AccountInfo<'a>,
+  destination: AccountInfo<'a>,
+  system_program: AccountInfo<'a>,
+  amount: u64,
+) -> Result<(), ProgramError> {
+  let ix = solana_program::system_instruction::transfer(source.key, destination.key, amount);
+  invoke(&ix, &[source, destination, system_program])
+}
 pub fn sol_transfer_with_signer<'a>(
   source: AccountInfo<'a>,
   destination: AccountInfo<'a>,

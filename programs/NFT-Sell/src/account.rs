@@ -1,20 +1,20 @@
 use anchor_lang::prelude::*;
-use std::vec::Vec;
 use crate::constants::*;
 
 #[zero_copy]
-#[derive(Default)]
-pub struct NFTInfo {
-  pub nft_mint: Pubkey,
-  pub buy_type: u8,
-  pub price: u64
+#[derive(Default, Debug)]
+#[repr(packed)]
+pub struct NFTInfo {    // 48
+  pub nft_mint: Pubkey, // 32
+  pub price: u64,        // 8
+  pub buy_type: u64,     // 8 
 }
 
 #[account(zero_copy)]
-pub struct GlobalPool {
-  pub nfts: [NFTInfo; NFT_TOTAL_COUNT],
-  pub nft_count: usize,
-  pub admin_wallet: Pubkey
+pub struct GlobalPool {                 // 
+  pub nfts: [NFTInfo; NFT_TOTAL_COUNT], // 48 * 64000 
+  pub nft_count: u64,                   // 8
+  pub admin_wallet: Pubkey              // 32
 }
 impl Default for GlobalPool {
   #[inline]
@@ -32,26 +32,28 @@ impl Default for GlobalPool {
 }
 impl GlobalPool {
   pub fn add_nft(&mut self, item: NFTInfo) {
-    let nfts = &mut self.nfts;
-    nfts[self.nft_count] = item; 
+    self.nfts[self.nft_count as usize] = item; 
     self.nft_count += 1;
   }
   pub fn remove_nft(&mut self, mint_key: Pubkey) -> NFTInfo{
-    let mut removed: u8 = 0;
-    let mut item: NFTInfo ;
+    msg!("--remove_nft--{},{}",self.nfts[0].nft_mint,mint_key);
+    let mut item: NFTInfo = NFTInfo {
+      nft_mint: Pubkey::default(),
+      buy_type: 5,
+      price: 0,
+    };
     for i in 0..self.nft_count {
-      if self.nfts[i].nft_mint.eq(&mint_key)  {
+      if self.nfts[i as usize].nft_mint.eq(&mint_key)  {
         if i != self.nft_count - 1 {
-          item = self.nfts[i];
-          self.nfts[i] = self.nfts[self.nft_count - 1];
+          item = self.nfts[i as usize];
+          self.nfts[i as usize] = self.nfts[(self.nft_count - 1) as usize];
           self.nft_count -= 1;
-          removed = 1;
           break;
         }
       }
     }
     //require!(removed == 1,&b"remove item not found");
-    return item;
+    item
   }
   pub fn contain_nft(&mut self, mint_key: Pubkey) -> bool {
     for x in &self.nfts {
