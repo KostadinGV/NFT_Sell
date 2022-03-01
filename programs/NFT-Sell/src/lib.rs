@@ -61,7 +61,6 @@ declare_id!("CBJZq3rkobzfuruCxJs9kJw9pk5JzMhEemUfY2JgT7YZ");
 #[program]
 pub mod nft_sell {
     use super::*;
-    
 
     pub fn initialize(
         ctx: Context<Initialize>,
@@ -72,6 +71,7 @@ pub mod nft_sell {
         pool.admin_wallet = ctx.accounts.admin.key();
         let (vault_authority, _vault_authority_bump) = 
             Pubkey::find_program_address(&[VAULT_AUTHORITY_SEED], ctx.program_id);
+
         let cpi_accounts = SetAuthority {
             account_or_mint: ctx.accounts.vault_account.to_account_info().clone(),
             current_authority: ctx.accounts.admin.to_account_info().clone(),
@@ -85,6 +85,7 @@ pub mod nft_sell {
 
         Ok(())
     }
+    
     pub fn add_nft(
         ctx: Context<AddNFT>,
         buy_type: u64,
@@ -98,7 +99,7 @@ pub mod nft_sell {
         let mut pool =  ctx.accounts.pool.load_mut()?;
         pool.add_nft(nft);
 
-        let (_vault_authority, vault_authority_bump) = 
+        let (_vault_authority, _vault_authority_bump) = 
         Pubkey::find_program_address(&[VAULT_AUTHORITY_SEED], ctx.program_id);
 
 
@@ -219,6 +220,17 @@ pub struct Initialize<'info> {
     )]
     pub vault_account: Account<'info, TokenAccount>,
     pub token_mint: Account<'info, Mint>,
+    pub token_program: AccountInfo<'info>,
+    pub system_program: Program<'info, System>,
+    pub rent: Sysvar<'info, Rent>
+}
+#[derive(Accounts)]
+#[instruction( _vault_account_bump: u8)]
+pub struct GetBuyList<'info> {
+    #[account(mut)]
+    pub admin: Signer<'info>,
+    #[account(zero)]
+    pub pool: AccountLoader<'info, GlobalPool>,
     pub token_program: AccountInfo<'info>,
     pub system_program: Program<'info, System>,
     pub rent: Sysvar<'info, Rent>
